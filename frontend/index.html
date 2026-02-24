@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot Pro - RAG & Vision</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Markdown & Highlighting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="light-mode">
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <button class="new-chat-btn" onclick="startNewChat()">
+                <span>+</span> Novo Chat
+            </button>
+
+            <div class="sidebar-section">
+                <div class="section-title">Conversas Recentes</div>
+                <div class="sessions-list" id="sessionsList"></div>
+            </div>
+
+            <div class="sidebar-section file-management">
+                <div class="section-title">Documentos & Imagens</div>
+                <div id="fileList"></div>
+                <button onclick="clearEverything()" class="icon-btn danger-btn" style="width: 100%; margin-top: 10px; font-size: 12px;">
+                    🗑 Limpar Banco de Dados
+                </button>
+            </div>
+
+            <div class="sidebar-footer">
+                <button id="themeToggle" class="icon-btn" onclick="toggleTheme()" title="Alternar Tema">🌓</button>
+                <span style="font-size: 12px; color: var(--text-dim)">v2.0 Beta</span>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header>
+                <div class="header-left">
+                    <button id="menuBtn" onclick="toggleSidebar()" class="icon-btn">☰</button>
+                    <h1>🤖 Chatbot Inteligente</h1>
+                </div>
+                <div class="header-right">
+                    <!-- Status indicators could go here -->
+                </div>
+            </header>
+
+            <!-- Upload Bar -->
+            <div class="top-upload-bar">
+                <div class="upload-group">
+                    <span>📄 Adicionar PDF:</span>
+                    <label class="upload-label">
+                        Selecionar
+                        <input type="file" id="pdfFile" accept=".pdf" onchange="uploadPDF()">
+                    </label>
+                </div>
+                <div style="border-left: 1px solid var(--border); height: 20px;"></div>
+                <div class="upload-group">
+                    <span>🖼️ Analisar Imagem:</span>
+                    <label class="upload-label">
+                        Selecionar
+                        <input type="file" id="imageFile" accept="image/*" onchange="uploadImage()">
+                    </label>
+                </div>
+            </div>
+
+            <div class="chat-container" id="chatContainer">
+                <div id="chatMessages" class="chat-messages">
+                    <!-- Welcome message will be added via script -->
+                </div>
+                
+                <div class="input-area">
+                    <div class="input-container">
+                        <input 
+                            type="text" 
+                            id="questionInput" 
+                            placeholder="Mande uma mensagem ou pergunte sobre seus documentos..." 
+                            onkeypress="handleKeyPress(event)"
+                        />
+                        <button id="sendBtn" onclick="sendMessage()">➤</button>
+                    </div>
+                    <p style="text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 10px;">
+                        Model: GPT-3.5 Turbo + RAG. Respostas podem conter imprecisões.
+                    </p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Progress Overlay -->
+    <div id="progressOverlay">
+        <div class="progress-card">
+            <h3 id="progressTitle">Processando...</h3>
+            <div class="p-bar">
+                <div id="pFill" class="p-fill"></div>
+            </div>
+            <p id="progressText" style="font-size: 12px; color: var(--text-dim)">Isso pode levar alguns segundos.</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
