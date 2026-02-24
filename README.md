@@ -100,4 +100,4 @@ O sistema utiliza a arquitetura **Retrieve-and-Generate**:
 Distribuído sob a licença MIT. Veja `LICENSE` para mais informações.
 
 ---
-**Desenvolvido com ❤️ por [Seu Nome]**
+**Desenvolvido com ❤️ por [@josetorquato]**
