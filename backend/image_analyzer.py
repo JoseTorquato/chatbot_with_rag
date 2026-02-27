@@ -1,18 +1,19 @@
+import logging
 import os
 import base64
-from openai import OpenAI
-from dotenv import load_dotenv
 
-load_dotenv()
+from openai import OpenAI
+from config import settings
+
+logger = logging.getLogger(__name__)
+
 
 class ImageAnalyzer:
+    """Módulo de Visão Computacional: análise de imagens via GPT-4 Vision."""
+
     def __init__(self):
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY não encontrada. Configure a variável de ambiente.")
-        
-        self.client = OpenAI(api_key=api_key)
-        
+        self.client = OpenAI(api_key=settings.openai_api_key)
+
         self.prompt = """Você é um especialista em design, UI/UX e análise visual. Analise esta imagem cuidadosamente e forneça um feedback detalhado e construtivo.
 
 **Seu feedback deve incluir:**
@@ -46,13 +47,14 @@ class ImageAnalyzer:
 - Priorize as melhorias mais importantes
 - Responda em português do Brasil
 - Formate sua resposta de forma clara e organizada"""
-    
-    def analyze_image(self, image_path):
-        print(f"\n🖼️ Analisando imagem: {image_path}")
-        
+
+    def analyze_image(self, image_path: str) -> str:
+        """Analisa uma imagem usando GPT-4 Vision e retorna a análise em texto."""
+        logger.info("Analisando imagem: %s", os.path.basename(image_path))
+
         with open(image_path, "rb") as image_file:
             image_data = base64.b64encode(image_file.read()).decode('utf-8')
-        
+
         file_extension = os.path.splitext(image_path)[1].lower()
         mime_types = {
             '.png': 'image/png',
@@ -62,13 +64,10 @@ class ImageAnalyzer:
             '.webp': 'image/webp'
         }
         mime_type = mime_types.get(file_extension, 'image/jpeg')
-        
-        print(f"   Tipo de imagem: {mime_type}")
-        print(f"   Enviando para GPT-4 Vision...")
-        
+
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=settings.vision_model,
                 messages=[
                     {
                         "role": "user",
@@ -86,12 +85,11 @@ class ImageAnalyzer:
                 max_tokens=1500,
                 temperature=0.7
             )
-            
+
             analysis = response.choices[0].message.content
-            print(f"   ✅ Análise recebida ({len(analysis)} caracteres)")
-            
+            logger.info("Análise concluída (%d caracteres).", len(analysis))
             return analysis
-            
-        except Exception as e:
-            print(f"   ❌ Erro ao analisar imagem: {e}")
+
+        except Exception:
+            logger.exception("Erro ao analisar imagem.")
             raise

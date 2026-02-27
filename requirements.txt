@@ -20,7 +20,14 @@ numpy>=1.24.0
 # Document Processing
 pypdf>=3.17.4
 
-# Utilities
+# Configuration
+pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
+
+# Utilities
 openai>=1.30.0
 Pillow>=10.0.0
+
+# Testing
+pytest>=7.4.0
+httpx>=0.24.0

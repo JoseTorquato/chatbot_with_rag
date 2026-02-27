@@ -56,18 +56,18 @@
             <!-- Upload Bar -->
             <div class="top-upload-bar">
                 <div class="upload-group">
-                    <span>📄 Adicionar PDF:</span>
+                    <span>📄 Adicionar Documento:</span>
                     <label class="upload-label">
                         Selecionar
-                        <input type="file" id="pdfFile" accept=".pdf" onchange="uploadPDF()">
+                        <input type="file" id="pdfFile" accept=".pdf,.txt" onchange="uploadPDF()">
                     </label>
                 </div>
                 <div style="border-left: 1px solid var(--border); height: 20px;"></div>
-                <div class="upload-group">
+                <div class="upload-group disabled-feature" title="Funcionalidade em desenvolvimento">
                     <span>🖼️ Analisar Imagem:</span>
-                    <label class="upload-label">
-                        Selecionar
-                        <input type="file" id="imageFile" accept="image/*" onchange="uploadImage()">
+                    <label class="upload-label" style="opacity: 0.5; cursor: not-allowed;">
+                        Em breve...
+                        <input type="file" id="imageFile" accept="image/*" disabled>
                     </label>
                 </div>
             </div>
@@ -88,7 +88,7 @@
                         <button id="sendBtn" onclick="sendMessage()">➤</button>
                     </div>
                     <p style="text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 10px;">
-                        Model: GPT-3.5 Turbo + RAG. Respostas podem conter imprecisões.
+                        Aceita PDFs e TXTs · RAG + GPT · Respostas podem conter imprecisões.
                     </p>
                 </div>
             </div>

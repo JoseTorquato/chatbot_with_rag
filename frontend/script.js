@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function showWelcomeMessage() {
     const container = document.getElementById('chatMessages');
     if (container && container.children.length === 0) {
-        addMessage("Olá! Sou seu assistente inteligente. Carregue um PDF ou uma imagem para começarmos a conversar sobre eles!", 'bot');
+        addMessage("Olá! Sou seu assistente inteligente. Carregue um PDF, TXT ou uma imagem para começarmos a conversar sobre eles!", 'bot');
     }
 }
 
@@ -162,51 +162,56 @@ async function sendMessage() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let isFirstToken = true;
-        let buffer = ""; // Buffer para lidar com chunks parciais
+        let streamBuffer = ""; // Buffer para acumular fragmentos da stream
 
         while (true) {
             const { value, done } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
+            streamBuffer += decoder.decode(value, { stream: true });
 
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data: ')) continue;
+            // SSE separa mensagens por dois line-breaks (\n\n)
+            let boundary = streamBuffer.indexOf('\n\n');
+            while (boundary !== -1) {
+                const rawMessage = streamBuffer.substring(0, boundary).trim();
+                streamBuffer = streamBuffer.substring(boundary + 2);
 
-                try {
-                    const data = JSON.parse(trimmed.substring(6));
-                    if (data.token) {
-                        if (isFirstToken) {
-                            contentDiv.innerHTML = "";
-                            isFirstToken = false;
+                if (rawMessage.startsWith('data: ')) {
+                    try {
+                        const jsonStr = rawMessage.substring(6);
+                        const data = JSON.parse(jsonStr);
+
+                        if (data.token) {
+                            if (isFirstToken) {
+                                contentDiv.innerHTML = "";
+                                isFirstToken = false;
+                            }
+                            // Efeito de digitação
+                            typewriterQueue.push(...data.token.split(''));
+                            if (!isTyping) processTypewriter();
                         }
-                        // Em vez de adicionar ao fullText direto, joga na fila
-                        typewriterQueue.push(...data.token.split(''));
-                        if (!isTyping) processTypewriter();
-                        scrollToBottom();
+
+                        if (data.done) {
+                            // Finalizou a stream
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn("Falha ao processar fragmento JSON:", e);
                     }
-                } catch (e) { }
-            }
-        }
-        botMessageDiv.classList.remove('streaming'); // Desativa o cursor ao terminar
-
-        // Processa o que sobrou no buffer se for uma linha completa
-        if (buffer.trim().startsWith('data: ')) {
-            try {
-                const data = JSON.parse(buffer.trim().substring(6));
-                if (data.token) {
-                    if (isFirstToken) contentDiv.innerHTML = "";
-                    fullText += data.token;
-                    contentDiv.innerHTML = marked.parse(fullText);
                 }
-            } catch (e) { }
+                boundary = streamBuffer.indexOf('\n\n');
+            }
+            scrollToBottom();
         }
 
+        botMessageDiv.classList.remove('streaming');
         loadSessions();
     } catch (err) {
-        contentDiv.innerHTML = `<span style="color: #ef4444;">Erro: ${err.message}. Verifique se o backend está ativo.</span>`;
+        if (botMessageDiv) {
+            botMessageDiv.classList.remove('streaming');
+            const contentDiv = botMessageDiv.querySelector('.message-content');
+            contentDiv.innerHTML = `<span style="color: #ef4444;">Erro: ${err.message}</span>`;
+        }
         console.error(err);
     } finally {
         isProcessing = false;
@@ -254,18 +259,18 @@ async function uploadPDF() {
     const formData = new FormData();
     formData.append('file', fileInput.files[0]);
 
-    toggleProgress(true, "Processando PDF...");
+    toggleProgress(true, "Processando documento...");
     try {
         const res = await fetch(`${API_BASE_URL}/api/upload`, { method: 'POST', body: formData });
         if (res.ok) {
-            addMessage(`PDF "**${fileInput.files[0].name}**" processado com sucesso!`, 'bot');
+            addMessage(`Documento "**${fileInput.files[0].name}**" processado com sucesso!`, 'bot');
             loadFiles();
         } else {
             const data = await res.json();
             alert("Erro: " + (data.error || "Erro desconhecido"));
         }
     } catch (err) {
-        alert("Erro de conexão ao enviar PDF.");
+        alert("Erro de conexão ao enviar documento.");
     } finally {
         toggleProgress(false);
         fileInput.value = '';

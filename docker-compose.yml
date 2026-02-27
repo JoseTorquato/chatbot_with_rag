@@ -1,0 +1,10 @@
+services:
+  chatbot:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - backend/.env
+    restart: unless-stopped

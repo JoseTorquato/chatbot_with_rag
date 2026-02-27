@@ -1,23 +1,38 @@
+import logging
 import os
 import shutil
-import base64
-from fastapi import FastAPI, UploadFile, File, Request, HTTPException
+import time
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 from pydantic import BaseModel
 import uvicorn
-import datetime
 
-from pdf_processor import PDFProcessor
+from config import settings
+from document_processor import DocumentProcessor, SUPPORTED_EXTENSIONS
 from chatbot import Chatbot
 from image_analyzer import ImageAnalyzer
 
-# Inicialização
-app = FastAPI(title="Chatbot with RAG API")
+# --- Logging ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
-# Configurar CORS
+# --- Inicialização ---
+START_TIME = time.time()
+
+app = FastAPI(
+    title="Chatbot with RAG API",
+    description="API REST para chatbot com RAG (Retrieval-Augmented Generation) e análise de imagens.",
+    version="2.0.0"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,62 +40,124 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Caminhos
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PDF_FOLDER = os.path.join(BASE_DIR, 'data', 'pdfs')
-IMAGE_FOLDER = os.path.join(BASE_DIR, 'data', 'images')
-VECTORSTORE_PATH = os.path.join(BASE_DIR, 'data', 'vectorstore')
 
-os.makedirs(PDF_FOLDER, exist_ok=True)
-os.makedirs(IMAGE_FOLDER, exist_ok=True)
-os.makedirs(VECTORSTORE_PATH, exist_ok=True)
+# --- Global Exception Handler ---
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Captura exceções não tratadas e retorna JSON padronizado."""
+    logger.exception("Erro não tratado em %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Erro interno do servidor",
+            "detail": str(exc) if not isinstance(exc, HTTPException) else exc.detail
+        }
+    )
 
-# Instâncias
-pdf_processor = PDFProcessor(PDF_FOLDER, VECTORSTORE_PATH)
-chatbot = Chatbot(pdf_processor)
+
+# --- Caminhos e instâncias ---
+os.makedirs(settings.documents_folder, exist_ok=True)
+os.makedirs(settings.images_folder, exist_ok=True)
+os.makedirs(settings.vectorstore_path, exist_ok=True)
+
+doc_processor = DocumentProcessor(settings.documents_folder, settings.vectorstore_path)
+chatbot = Chatbot(doc_processor)
 image_analyzer = ImageAnalyzer()
 
-# Tipos de dados (Pydantic)
+
+# --- Modelos Pydantic (Request & Response) ---
 class ChatRequest(BaseModel):
     question: str
     session_id: Optional[str] = "default"
 
-# --- ROTAS DA API ---
+class MessageResponse(BaseModel):
+    message: str
 
-@app.post("/api/upload")
-async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Apenas arquivos PDF são permitidos")
+class ErrorResponse(BaseModel):
+    error: str
+    detail: str | None = None
 
-    filepath = os.path.join(PDF_FOLDER, file.filename)
-    
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    uptime_seconds: float
+    vectorstore_loaded: bool
+    documents_count: int
+    model: str
+
+
+# =====================================================================
+# ROTAS DA API
+# =====================================================================
+
+@app.get("/api/health", response_model=HealthResponse)
+async def health_check():
+    """Health check: status do serviço, uptime e estado do vectorstore."""
+    doc_count = len([
+        f for f in os.listdir(settings.documents_folder)
+        if os.path.splitext(f)[1].lower() in SUPPORTED_EXTENSIONS
+    ]) if os.path.exists(settings.documents_folder) else 0
+
+    return HealthResponse(
+        status="healthy",
+        version="2.0.0",
+        uptime_seconds=round(time.time() - START_TIME, 1),
+        vectorstore_loaded=doc_processor.vectorstore is not None,
+        documents_count=doc_count,
+        model=settings.llm_model
+    )
+
+
+@app.post("/api/upload", response_model=MessageResponse)
+async def upload_document(file: UploadFile = File(...)):
+    """Upload e indexação de documento (PDF ou TXT)."""
+    ext = os.path.splitext(file.filename)[1].lower()
+
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato não suportado: {ext}. Formatos aceitos: {', '.join(SUPPORTED_EXTENSIONS)}"
+        )
+
+    # Verificar tamanho do arquivo
+    contents = await file.read()
+    size_mb = len(contents) / (1024 * 1024)
+    if size_mb > settings.max_upload_size_mb:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Arquivo muito grande ({size_mb:.1f}MB). Máximo: {settings.max_upload_size_mb}MB"
+        )
+
+    filepath = os.path.join(settings.documents_folder, file.filename)
+
     try:
-        # Salva o arquivo de forma assíncrona
         with open(filepath, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        # Processamento (RAG)
-        pdf_processor.process_pdf(filepath)
-        
-        return {"message": f"PDF {file.filename} processado com sucesso!"}
+            buffer.write(contents)
+
+        doc_processor.process_document(filepath)
+
+        logger.info("Documento '%s' processado (%.1fMB).", file.filename, size_mb)
+        return MessageResponse(message=f"Documento '{file.filename}' processado com sucesso!")
+
     except Exception as e:
-        print(f"❌ Erro no processamento: {e}")
+        logger.exception("Erro no processamento de '%s'.", file.filename)
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
+    """Enviar pergunta e receber resposta via streaming (SSE)."""
     if not request.question:
         raise HTTPException(status_code=400, detail="Pergunta não fornecida")
-    
-    # Gerador para Streaming
+
+    logger.info("Chat | session=%s | pergunta='%s'", request.session_id, request.question[:80])
+
     async def event_generator():
         for token in chatbot.get_response_stream(request.question, request.session_id):
-            # Log apenas para debug no terminal
-            # print(f"📤 Token enviado: {token[:20]}...") 
             yield token
 
     return StreamingResponse(
-        event_generator(), 
+        event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -89,8 +166,10 @@ async def chat_endpoint(request: ChatRequest):
         }
     )
 
+
 @app.get("/api/sessions")
 async def list_sessions():
+    """Listar todas as sessões de conversa."""
     sessions = []
     for sid in chatbot.memories.keys():
         memory = chatbot.memories[sid]
@@ -100,66 +179,103 @@ async def list_sessions():
         sessions.append({'id': sid, 'title': title})
     return {"sessions": sessions}
 
+
 @app.get("/api/sessions/{session_id}")
 async def get_session_history(session_id: str):
+    """Retornar histórico de uma sessão específica."""
     history = chatbot.get_history(session_id)
     return {"history": history}
 
+
+@app.get("/api/documents")
+async def list_documents():
+    """Listar documentos indexados (PDFs e TXTs)."""
+    docs = [
+        f for f in os.listdir(settings.documents_folder)
+        if os.path.splitext(f)[1].lower() in SUPPORTED_EXTENSIONS
+    ]
+    return {"documents": docs}
+
+
 @app.get("/api/pdfs")
 async def list_pdfs():
-    pdfs = [f for f in os.listdir(PDF_FOLDER) if f.endswith('.pdf')]
-    return {"pdfs": pdfs}
+    """Retrocompatibilidade: listar documentos."""
+    docs = [
+        f for f in os.listdir(settings.documents_folder)
+        if os.path.splitext(f)[1].lower() in SUPPORTED_EXTENSIONS
+    ]
+    return {"pdfs": docs}
+
+
+@app.delete("/api/documents/{filename}", response_model=MessageResponse)
+async def delete_document(filename: str):
+    """Remover um documento."""
+    filepath = os.path.join(settings.documents_folder, filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        logger.info("Documento '%s' removido.", filename)
+        return MessageResponse(message=f"Documento '{filename}' deletado.")
+    raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+
 
 @app.delete("/api/pdfs/{filename}")
 async def delete_pdf(filename: str):
-    filepath = os.path.join(PDF_FOLDER, filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
-        return {"message": f"PDF {filename} deletado."}
-    raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    """Retrocompatibilidade: remover via rota antiga."""
+    return await delete_document(filename)
+
 
 @app.get("/api/images")
 async def list_images():
-    images = [f for f in os.listdir(IMAGE_FOLDER) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
+    """Listar imagens analisadas."""
+    images = [f for f in os.listdir(settings.images_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
     return {"images": images}
+
 
 @app.post("/api/upload-image")
 async def upload_image(file: UploadFile = File(...)):
+    """Upload e análise de imagem via GPT-4 Vision."""
     if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
         raise HTTPException(status_code=400, detail="Formato de imagem inválido")
 
-    filepath = os.path.join(IMAGE_FOLDER, file.filename)
+    filepath = os.path.join(settings.images_folder, file.filename)
     with open(filepath, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
+
     analysis = image_analyzer.analyze_image(filepath)
     chatbot.set_last_image(filepath)
+    logger.info("Imagem '%s' analisada.", file.filename)
     return {"analysis": analysis, "filename": file.filename}
 
-@app.post("/api/clear")
+
+@app.post("/api/clear", response_model=MessageResponse)
 async def clear_all():
-    pdf_processor.clear_vectorstore()
+    """Limpar vector store e memória de sessões."""
+    doc_processor.clear_vectorstore()
     chatbot.clear_memory()
-    return {"message": "Banco de dados limpo!"}
+    logger.info("Banco de dados e memória limpos.")
+    return MessageResponse(message="Banco de dados limpo!")
 
-# --- SERVIR FRONTEND ---
 
-# Monta a pasta de arquivos estáticos (CSS, JS)
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "frontend")), name="static")
+# =====================================================================
+# SERVIR FRONTEND
+# =====================================================================
+
+app.mount("/static", StaticFiles(directory=settings.frontend_path), name="static")
+
 
 @app.get("/")
 async def serve_index():
-    return FileResponse(os.path.join(BASE_DIR, "frontend", "index.html"))
+    return FileResponse(os.path.join(settings.frontend_path, "index.html"))
 
-# Fallback para o index.html em rotas não encontradas (útil para SPAs)
+
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
-    # Se o arquivo existir na pasta frontend, serve ele (ex: style.css)
-    local_file = os.path.join(BASE_DIR, "frontend", full_path)
+    local_file = os.path.join(settings.frontend_path, full_path)
     if os.path.exists(local_file) and os.path.isfile(local_file):
         return FileResponse(local_file)
-    # Caso contrário, volta para o index.html
-    return FileResponse(os.path.join(BASE_DIR, "frontend", "index.html"))
+    return FileResponse(os.path.join(settings.frontend_path, "index.html"))
+
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    logger.info("Iniciando servidor em %s:%d...", settings.host, settings.port)
+    uvicorn.run(app, host=settings.host, port=settings.port)
