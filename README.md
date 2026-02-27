@@ -244,23 +244,6 @@ Se fosse evoluir este projeto para um ambiente produtivo:
 
 ---
 
-## ⏱️ Tempo Estimado de Desenvolvimento
-
-| Etapa | Tempo |
-|:---|:---|
-| Planejamento e arquitetura | ~1h |
-| Setup do projeto (env, deps, estrutura) | ~1h |
-| Pipeline RAG (ingestão + FAISS + chain) | ~4h |
-| API REST (FastAPI + endpoints) | ~2h |
-| Streaming e SSE | ~2h |
-| Frontend (HTML/CSS/JS + typewriter) | ~3h |
-| Análise de imagens (GPT-4 Vision) | ~1h |
-| Testes manuais e refinamentos | ~2h |
-| Documentação (README) | ~1h |
-| Dockerização | ~1h |
-| **Total estimado** | **~18h** |
-
----
 
 ## 📜 Licença
 
